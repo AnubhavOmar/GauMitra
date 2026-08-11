@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>GauMitra</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="../static/style.css">
 </head>
 <body style="background-color: #e8f5e9;">
 
@@ -21,9 +21,13 @@
 
     <section class="upload-section">
       <form id="upload-form" enctype="multipart/form-data">
-        <label for="image" style="font-size:18px; color:#2e7d32;">📷 Apni गाय की Image Upload karein:</label><br><br>
+        <p style="font-size:18px; color:#2e7d32; margin-bottom: 15px;">Upload Your Cow Image Here:</p>
+        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;">
+          <label class="predict-image-btn" for="image">📷</label>
+          <span id="file-name" style="color: #666; font-size: 14px;">No file selected</span>
+        </div>
         <input type="file" id="image" name="image" accept="image/*" required>
-        <button type="submit">Predict Karein</button>
+        <button type="submit">Predict</button>
       </form>
 
       <img id="preview" src="#" alt="Image Preview" style="display:none; margin-top:15px;">
@@ -31,7 +35,7 @@
 
       <div class="btn-group">
         <a href="/" class="btn">Home Page</a>
-        <a href="/predict_page" class="btn secondary">Dobara Try Karein</a>
+        <a href="/predict_page" class="btn secondary">Please Retry</a>
       </div>
     </section>
   </div>
@@ -44,27 +48,27 @@
     document.getElementById('image').addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (file) {
+        document.getElementById('file-name').textContent = file.name;
         const reader = new FileReader();
         reader.onload = (event) => {
           preview.src = event.target.result;
           preview.style.display = 'block';
         };
         reader.readAsDataURL(file);
+      } else {
+        document.getElementById('file-name').textContent = 'No file selected';
       }
     });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      resultDiv.innerHTML = "Image Analyze ho raha hai, kripya rukiyega...";
+      resultDiv.innerHTML = "Analyzing image, please wait...";
       const file = document.getElementById('image').files[0];
       const formData = new FormData();
       formData.append('image', file);
 
       try {
-        // 👉 Localhost URL instead of Render URL
-        const res = await fetch('http://127.0.0.1:5000/predict', {
-      const res = await fetch('/predict', {
-
+        const res = await fetch('/predict', {
           method: 'POST',
           body: formData
         });
@@ -72,7 +76,7 @@
         const data = await res.json();
 
         if (!data.prediction) {
-          resultDiv.innerHTML = "Ye image गाय की nahi lag rahi hai, please ek aur try karein!";
+          resultDiv.innerHTML = "This image does not appear to be a cow, please try another one!";
         } else {
           resultDiv.innerHTML = `
             <b>Nasal:</b> ${data.prediction}<br>
@@ -84,7 +88,7 @@
           `;
         }
       } catch {
-        resultDiv.innerHTML = "Backend nahi chal raha! Flask app start karein.";
+        resultDiv.innerHTML = "Backend is not working, please restart the Flask server.";
       }
     });
   </script>
@@ -95,5 +99,115 @@
     </div>
   </footer>
 
+<button class="chatbot-toggle" onclick="toggleChatbot()">
+  <span>🤖</span>
+</button>
+
+<div class="chatbot-window" id="chatbotWindow">
+  <div class="chatbot-header">
+    <h3>🤖 GauMitra Assistant</h3>
+    <button class="chatbot-close" onclick="toggleChatbot()">×</button>
+  </div>
+  <div class="chatbot-messages" id="chatMessages">
+    <div class="chat-message bot">
+      Hello! I'm your GauMitra Assistant. You can ask me about cow breeds, health issues, or any farming questions. Agar aapki cow beemar hai, just describe the symptoms or upload a photo and I'll help you! 🐄
+    </div>
+  </div>
+  <div class="chatbot-input-area">
+    <div class="chatbot-input-row">
+      <label class="chatbot-image-btn" for="chatImageInput">📷</label>
+      <input type="file" id="chatImageInput" accept="image/*" style="display:none;">
+      <input type="text" id="chatInput" placeholder="Type your question here..." onkeypress="handleKeyPress(event)">
+      <button class="chatbot-send-btn" onclick="sendMessage()">➤</button>
+    </div>
+    <div class="chatbot-image-preview" id="imagePreview">
+      <img id="previewImg" src="" alt="Preview">
+      <button class="chatbot-image-remove" onclick="removeImage()">×</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let chatImageData = null;
+
+  function toggleChatbot() {
+    const chatWindow = document.getElementById('chatbotWindow');
+    chatWindow.style.display = chatWindow.style.display === 'flex' ? 'none' : 'flex';
+  }
+
+  document.getElementById('chatImageInput').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        chatImageData = event.target.result;
+        document.getElementById('previewImg').src = chatImageData;
+        document.getElementById('imagePreview').style.display = 'block';
+      };
+      reader.readAsDataURL(file);
+    }
+  });
+
+  function removeImage() {
+    chatImageData = null;
+    document.getElementById('imagePreview').style.display = 'none';
+    document.getElementById('chatImageInput').value = '';
+  }
+
+  function handleKeyPress(event) {
+    if (event.key === 'Enter') {
+      sendMessage();
+    }
+  }
+
+  function addMessage(text, isUser) {
+    const messagesDiv = document.getElementById('chatMessages');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'chat-message ' + (isUser ? 'user' : 'bot');
+    messageDiv.innerHTML = text.replace(/\n/g, '<br>');
+    messagesDiv.appendChild(messageDiv);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  }
+
+  async function sendMessage() {
+    const input = document.getElementById('chatInput');
+    const message = input.value.trim();
+    
+    if (!message && !chatImageData) return;
+
+    const displayMessage = message + (chatImageData ? ' [Photo attached]' : '');
+    addMessage(displayMessage, true);
+    input.value = '';
+
+    addMessage('Thinking...', false);
+    const messagesDiv = document.getElementById('chatMessages');
+    const typingIndicator = messagesDiv.lastChild;
+
+    try {
+      const response = await fetch('/chatbot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          message: message || 'Please analyze this image of my cow',
+          image: chatImageData 
+        })
+      });
+
+      const data = await response.json();
+      typingIndicator.remove();
+      
+      if (data.response) {
+        addMessage(data.response, false);
+      } else {
+        addMessage('Sorry, something went wrong. Please try again.', false);
+      }
+    } catch (error) {
+      typingIndicator.remove();
+      addMessage('Connection error! Please check your internet and try again.', false);
+    }
+
+    removeImage();
+  }
+</script>
 </body>
 </html>

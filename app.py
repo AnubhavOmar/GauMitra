@@ -1,6 +1,6 @@
-from flask import Flask, render_template, request, send_from_directory, jsonify  
+from flask import Flask, render_template, request, send_from_directory, jsonify
 import torch
-import torch.nn as nn  # 
+import torch.nn as nn
 from torchvision import models, transforms
 from PIL import Image
 import os
@@ -9,13 +9,12 @@ from chatbot import get_chatbot_response
 
 app = Flask(__name__)
 
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(BASE_DIR, "final_resnet50_balanced.pth")
 
-MODEL_PATH = "final_resnet50_balanced.pth" #Load the model 
-# Breeds name 
 classes = [
     'Alambadi', 'Amritmahal', 'Ayrshire', 'Banni', 'Bargur', 'Bhadawari',
     'Brown_Swiss', 'Dangi', 'Deoni', 'Gir', 'Guernsey', 'Hallikar',
@@ -27,21 +26,35 @@ classes = [
     'Umblachery', 'Vechur'
 ]
 
-# loading the pretrained model 
+# Model
+
 def load_model():
-    model = models.resnet50(pretrained=False)
+    model = models.resnet50(weights=None)
+
     num_features = model.fc.in_features
     model.fc = nn.Linear(num_features, len(classes))
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
-    model.eval()
-    return model.to(device)
 
-print("Loading model.")
+    model.load_state_dict(
+        torch.load(
+            MODEL_PATH,
+            map_location=device
+        )
+    )
+
+    model.to(device)
+    model.eval()
+    return model
+
+
+print("Loading model...")
+print("Model path:", MODEL_PATH)
+print("Model exists:", os.path.exists(MODEL_PATH))
+
 model = load_model()
+
 print("Model loaded successfully!")
 
-
-# transforming the images in a correct resoultion 
+# Image Transformation
 
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -49,15 +62,29 @@ transform = transforms.Compose([
     transforms.Normalize(
         mean=[0.485, 0.456, 0.406],
         std=[0.229, 0.224, 0.225]
-    ),
+    )
 ])
 
-# Connencted flask to our database
+# Database
+
 def get_breed_info(breed_name):
-    conn = sqlite3.connect("cows.db")
+
+    db_path = os.path.join(BASE_DIR, "cows.db")
+
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute("SELECT origin, color, milk_yield, characteristics FROM breeds WHERE name = ?", (breed_name,))
+
+    cursor.execute(
+        """
+        SELECT origin, color, milk_yield, characteristics
+        FROM breeds
+        WHERE name = ?
+        """,
+        (breed_name,)
+    )
+
     row = cursor.fetchone()
+
     conn.close()
 
     if row:
@@ -67,15 +94,15 @@ def get_breed_info(breed_name):
             "Milk Yield": row[2],
             "Characteristics": row[3]
         }
-    else:
-        return {
-            "Origin": "Unknown",
-            "Color": "Unknown",
-            "Milk Yield": "Unknown",
-            "Characteristics": "No details found for this breed."
-        }
 
-# model acces the inage where it is saved form the website 
+    return {
+        "Origin": "Unknown",
+        "Color": "Unknown",
+        "Milk Yield": "Unknown",
+        "Characteristics": "No details found for this breed."
+    }
+
+# Prediction
 def predict_breed(image_path):
     image = Image.open(image_path).convert("RGB")
     img_tensor = transform(image).unsqueeze(0).to(device)
@@ -87,12 +114,12 @@ def predict_breed(image_path):
         confidence = conf.item() * 100
         breed = classes[predicted.item()]
 
-    if confidence < 35:  
+    if confidence < 35:
         return None, confidence
-    else:
-        return breed, round(confidence, 2)
 
-# connected the backend with front-end 
+    return breed, round(confidence, 2)
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -103,24 +130,27 @@ def predict_page():
     return render_template("predict.html")
 
 
-@app.route("/predict", methods=["POST"])  # images goes to our model and retrun the result 
-
-# this function checks that , uploaded thing is iamge or not and also save the photo to local folder 
+@app.route("/predict", methods=["POST"])
 def upload_and_predict():
     if "image" not in request.files:
-        return jsonify({"error": "No image uploaded!"}), 400
+        return jsonify({
+            "error": "No image uploaded!"
+        }), 400
 
     file = request.files["image"]
     if file.filename == "":
-        return jsonify({"error": "Empty file!"}), 400
+        return jsonify({
+            "error": "Empty file!"
+        }), 400
 
-    os.makedirs("uploads", exist_ok=True)
-    image_path = os.path.join("uploads", file.filename)
+    upload_folder = os.path.join(BASE_DIR, "uploads")
+    os.makedirs(upload_folder, exist_ok=True)
+
+    image_path = os.path.join(upload_folder, file.filename)
     file.save(image_path)
 
     breed, confidence = predict_breed(image_path)
 
-    # if the photo is not of cow then prints , its is not that photo  
     if breed is None:
         return jsonify({
             "warning": "This image does not appear to be a cow.",
@@ -136,22 +166,39 @@ def upload_and_predict():
 
 @app.route("/uploads/<filename>")
 def send_file(filename):
-    return send_from_directory("uploads", filename)
+
+    upload_folder = os.path.join(BASE_DIR, "uploads")
+
+    return send_from_directory(
+        upload_folder,
+        filename
+    )
+
+
+# Chatbot
 
 @app.route("/chatbot", methods=["POST"])
 def chatbot():
-    """Handle chatbot messages for cow health assistance"""
+
     data = request.get_json()
-    
+
     if not data or "message" not in data:
-        return jsonify({"error": "No message provided!"}), 400
-    
+        return jsonify({
+            "error": "No message provided!"
+        }), 400
+
     user_message = data.get("message", "")
     image_data = data.get("image", None)
-    
-    response = get_chatbot_response(user_message, image_data)
-    
-    return jsonify({"response": response})
+
+    response = get_chatbot_response(
+        user_message,
+        image_data
+    )
+
+    return jsonify({
+        "response": response
+    })
+
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="127.0.0.1", port=5000, debug=True)

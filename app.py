@@ -5,6 +5,7 @@ from torchvision import models, transforms
 from PIL import Image
 import os
 import sqlite3
+from chatbot import get_chatbot_response
 
 app = Flask(__name__)
 
@@ -136,6 +137,21 @@ def upload_and_predict():
 @app.route("/uploads/<filename>")
 def send_file(filename):
     return send_from_directory("uploads", filename)
+
+@app.route("/chatbot", methods=["POST"])
+def chatbot():
+    """Handle chatbot messages for cow health assistance"""
+    data = request.get_json()
+    
+    if not data or "message" not in data:
+        return jsonify({"error": "No message provided!"}), 400
+    
+    user_message = data.get("message", "")
+    image_data = data.get("image", None)
+    
+    response = get_chatbot_response(user_message, image_data)
+    
+    return jsonify({"response": response})
 
 if __name__ == "__main__":
     app.run(debug=True)
